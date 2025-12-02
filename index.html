@@ -1,1 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 页面标题 -->
+  <title>三角洲行动地图跑图线路</title>
+  <style>
+    /* 通过变量控制工具栏高度，便于自适应非全屏视口 */
+    :root { --toolbar-h: 64px; }
+    html, body { height: 100%; margin: 0; }
+    body { background: #0b0f12; color: #e6e8ea; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    /* 基础布局：顶部工具栏 + 中部地图区域 */
+    .app { display: flex; flex-direction: column; height: 100%; }
+    /* 工具栏：置顶，半透明深色背景 */
+    .toolbar { display: flex; gap: 5px; padding: 6px 8px; background: rgba(20,24,28,.9); border-bottom: 1px solid rgba(255,255,255,.06); position: sticky; top: 0; z-index: 10; align-items: center; font-size: 0.6em; }
+    .toolbar button, .toolbar input[type="range"] { background: #192028; color: #cfd3d7; border: 1px solid #2a3540; border-radius: 4px; padding: 4px 6px; cursor: pointer; }
+    .toolbar input[type="range"] { width: 96px; accent-color: #5ac8fa; padding: 0; }
+    .toolbar button:hover { filter: brightness(1.1); }
+    /* 地图容器：居中显示并隐藏滚动，防止非全屏时出现滚动条 */
+    .map-wrap { position: relative; flex: 1; display: grid; place-items: center; overflow: hidden; }
+    .map { position: relative; display: inline-block; }
+    /* 背景图：同时受视口宽/高限制，确保非全屏也适配 */
+    .map img.bg { display: block; width: auto; height: auto; max-width: 100vw; max-height: calc(100vh - var(--toolbar-h)); }
+    /* 叠加图层：线路与提示图，与背景同尺寸叠加 */
+    .map img.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    /* 出生点交互：隐藏图标，只保留 hover/active 光晕提示 */
+    .spawn { position: absolute; transform: translate(-50%, -50%); width: 28px; height: 28px; border: none; background: transparent; padding: 0; cursor: pointer; }
+    .spawn img { display: none; }
+    .spawn::after { content: ""; position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; transform: translate(-50%, -50%); border-radius: 50%; background: rgba(255,255,255,0.001); }
+    .spawn:hover::after { box-shadow: 0 0 6px rgba(0, 180, 255, .8); }
+    .spawn.active::after { box-shadow: 0 0 8px rgba(255, 210, 0, .9); }
+    /* 当前线路提示：右上角半透明卡片 */
+    .legend { position: absolute; right: 8px; top: 8px; background: rgba(15,18,22,.75); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,.08); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: #cfd3d7; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- 顶部工具栏：提示图显示与透明度、清除当前线路 -->
+    <div class="toolbar">
+      <button id="toggleHint">显示出生点提示</button>
+      <label style="display:flex;align-items:center;gap:6px;background:transparent;border:none;color:#cfd3d7;">提示透明度 <input id="hintOpacity" type="range" min="0" max="100" value="45"></label>
+      <button id="clearRoute">清除当前线路</button>
+    </div>
+    <div class="map-wrap">
+      <!-- 地图层：背景图、线路覆盖、出生点提示、当前线路提示 -->
+      <div class="map" id="map">
+        <img class="bg" id="bg" src="Img/背景图.png" alt="背景图">
+        <img class="overlay" id="route" alt="线路覆盖" style="display:none">
+        <img class="overlay" id="hint" src="Img/出生点提示.png" alt="出生点提示" style="display:none; opacity:.45">
+        <div class="legend" id="legend" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+  <script>
+    // 出生点与线路映射：name 用于显示，file 为对应覆盖图，x/y 为百分比坐标
+    const spawns = [
+      { name: '东楼一号位', file: '东楼一号位.png', x: 15, y: 20 },
+      { name: '东楼一号位2', file: '东楼一号位2.png', x: 22, y: 30 },
+      { name: '西楼一号位', file: '西楼一号位.png', x: 82, y: 22 },
+      { name: '西楼一号位2', file: '西楼一号位2.png', x: 75, y: 33 },
+      { name: '军营流放位', file: '军营流放位.png', x: 30, y: 52 },
+      { name: '军营管道', file: '军营管道.png', x: 26, y: 62 },
+      { name: '坝顶位', file: '坝顶位.png', x: 50, y: 16 },
+      { name: '大变电站一号', file: '大变电站一号.png', x: 60, y: 50 },
+      { name: '小变电站一号', file: '小变电站一号.png', x: 67, y: 60 },
+      { name: '水泥厂一号位', file: '水泥厂一号位.png', x: 40, y: 70 },
+      { name: '水泥厂二号位', file: '水泥厂二号位.png', x: 46, y: 80 },
+      { name: '水泥厂三号位', file: '水泥厂三号位.png', x: 56, y: 74 },
+      { name: '游客中心一号位', file: '游客中心一号位.png', x: 20, y: 72 },
+      { name: '游客中心二号位', file: '游客中心二号位.png', x: 26, y: 82 }
+    ];
 
+    // 关键元素引用
+    const mapEl = document.getElementById('map');
+    const routeEl = document.getElementById('route');
+    const hintEl = document.getElementById('hint');
+    const bgEl = document.getElementById('bg');
+    const legendEl = document.getElementById('legend');
+    const hintOpacityEl = document.getElementById('hintOpacity');
+
+    // 当前选中出生点索引
+    let activeIdx = null;
+    // 选中反馈音效：使用 WebAudio 合成一段短音
+    let audioCtx = null;
+    function playSelectTone() {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now);
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.18, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.18);
+      } catch {}
+    }
+    // 启动加载坐标：优先使用本地保存；否则尝试读取 positions.json
+    try {
+      const saved = localStorage.getItem('spawnPositions');
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr) && arr.length === spawns.length) {
+          arr.forEach((p, i) => { if (p && typeof p.x === 'number' && typeof p.y === 'number') { spawns[i].x = p.x; spawns[i].y = p.y; } });
+          legendEl.textContent = '已从本地保存加载坐标';
+          legendEl.style.display = '';
+        }
+      } else {
+        fetch('positions.json').then(r => r.ok ? r.json() : null).then(arr => {
+          if (Array.isArray(arr) && arr.length === spawns.length) {
+            arr.forEach((p, i) => { if (p && typeof p.x === 'number' && typeof p.y === 'number') { spawns[i].x = p.x; spawns[i].y = p.y; } });
+            legendEl.textContent = '已从文件加载坐标';
+            legendEl.style.display = '';
+          }
+        }).catch(() => {});
+      }
+    } catch {}
+
+    // 为每个出生点创建一个隐形按钮，保留光晕与点击交互
+    function makeSpawn(idx, s) {
+      const b = document.createElement('button');
+      b.className = 'spawn';
+      b.style.left = s.x + '%';
+      b.style.top = s.y + '%';
+      b.addEventListener('click', () => {
+        if (activeIdx === idx) {
+          activeIdx = null;
+          routeEl.style.display = 'none';
+          legendEl.style.display = 'none';
+          b.classList.remove('active');
+          return;
+        }
+        const prev = document.querySelector('.spawn.active');
+        if (prev) prev.classList.remove('active');
+        b.classList.add('active');
+        activeIdx = idx;
+        routeEl.src = 'Img/' + s.file;
+        routeEl.style.display = '';
+        legendEl.textContent = '当前线路：' + s.name;
+        legendEl.style.display = '';
+        playSelectTone();
+      });
+      return b;
+    }
+
+    // 初始化：渲染出生点，绑定工具栏与自适应尺寸逻辑
+    function init() {
+      const toolbarEl = document.querySelector('.toolbar');
+      // 读取工具栏实际高度，写入 CSS 变量以便限制背景图高度
+      function applyToolbarHeight() {
+        const h = toolbarEl ? toolbarEl.offsetHeight : 64;
+        document.documentElement.style.setProperty('--toolbar-h', h + 'px');
+      }
+      applyToolbarHeight();
+      spawns.forEach((s, i) => mapEl.appendChild(makeSpawn(i, s)));
+      document.getElementById('toggleHint').addEventListener('click', () => {
+        const on = hintEl.style.display !== 'none';
+        hintEl.style.display = on ? 'none' : '';
+        document.getElementById('toggleHint').textContent = on ? '显示出生点提示' : '隐藏出生点提示';
+      });
+      // 提示图透明度调节
+      hintOpacityEl.addEventListener('input', () => { hintEl.style.opacity = (hintOpacityEl.value / 100).toString(); });
+      document.getElementById('clearRoute').addEventListener('click', () => {
+        activeIdx = null;
+        routeEl.style.display = 'none';
+        legendEl.style.display = 'none';
+        const prev = document.querySelector('.spawn.active');
+        if (prev) prev.classList.remove('active');
+      });
+      // 背景图加载后与窗口缩放时，对齐叠加图层尺寸
+      bgEl.addEventListener('load', () => {
+        applyToolbarHeight();
+        const w = bgEl.clientWidth, h = bgEl.clientHeight;
+        hintEl.style.width = w + 'px';
+        hintEl.style.height = h + 'px';
+        routeEl.style.width = w + 'px';
+        routeEl.style.height = h + 'px';
+      });
+      window.addEventListener('resize', () => {
+        applyToolbarHeight();
+        const w = bgEl.clientWidth, h = bgEl.clientHeight;
+        hintEl.style.width = w + 'px';
+        hintEl.style.height = h + 'px';
+        routeEl.style.width = w + 'px';
+        routeEl.style.height = h + 'px';
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>
