@@ -109,6 +109,14 @@
           arr.forEach((p, i) => { if (p && typeof p.x === 'number' && typeof p.y === 'number') { spawns[i].x = p.x; spawns[i].y = p.y; } });
           legendEl.textContent = '已从本地保存加载坐标';
           legendEl.style.display = '';
+          (async () => {
+            try {
+              const data = JSON.stringify(spawns.map(s => ({ name: s.name, file: s.file, x: +s.x, y: +s.y })), null, 2);
+              await navigator.clipboard.writeText(data);
+              legendEl.textContent = '已自动复制坐标（spawns 格式）到剪贴板';
+              legendEl.style.display = '';
+            } catch {}
+          })();
         }
       } else {
         fetch('positions.json').then(r => r.ok ? r.json() : null).then(arr => {
