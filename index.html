@@ -42,8 +42,9 @@
     <!-- 顶部工具栏：提示图显示与透明度、清除当前线路 -->
     <div class="toolbar">
       <button id="toggleHint">显示出生点提示</button>
-      <label style="display:flex;align-items:center;gap:6px;background:transparent;border:none;color:#ffffff;">提示透明度 <input id="hintOpacity" type="range" min="0" max="100" value="45"></label>
+      <label style="display:flex;align-items:center;gap:6px;background:transparent;border:none;color:#cfd3d7;">提示透明度 <input id="hintOpacity" type="range" min="0" max="100" value="45"></label>
       <button id="clearRoute">清除当前线路</button>
+      <button id="toggleFullscreen">进入全屏</button>
       <span id="loadStatus" class="load-status"><span id="loadText">资源加载中 0/14 (0%)</span><span class="progress"><span id="loadFill"></span></span></span>
     </div>
     <div class="map-wrap">
@@ -85,6 +86,7 @@
     const loadStatusEl = document.getElementById('loadStatus');
     const loadTextEl = document.getElementById('loadText');
     const loadFillEl = document.getElementById('loadFill');
+    const fullscreenBtn = document.getElementById('toggleFullscreen');
 
     // 当前选中出生点索引
     let activeIdx = null;
@@ -193,6 +195,19 @@
       applyToolbarHeight();
       preloadRoutes();
       spawns.forEach((s, i) => mapEl.appendChild(makeSpawn(i, s)));
+      function isFullscreen() { return !!(document.fullscreenElement); }
+      function updateFSLabel() { fullscreenBtn.textContent = isFullscreen() ? '退出全屏' : '进入全屏'; }
+      updateFSLabel();
+      fullscreenBtn.addEventListener('click', async () => {
+        try {
+          if (!isFullscreen()) {
+            await document.documentElement.requestFullscreen();
+          } else {
+            await document.exitFullscreen();
+          }
+        } catch {}
+      });
+      document.addEventListener('fullscreenchange', updateFSLabel);
       document.getElementById('toggleHint').addEventListener('click', () => {
         const on = hintEl.style.display !== 'none';
         hintEl.style.display = on ? 'none' : '';
